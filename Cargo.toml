@@ -1,0 +1,16 @@
+[package]
+name = "dieseq"
+version = "0.1.0"
+authors = ["Сухарик <suhr@i2pmail.org>"]
+
+[dependencies]
+gfx = "0.17"
+gfx_device_gl = "*"
+gfx_window_glutin = "*"
+glutin = "*"
+cgmath = "*"
+palette = "*"
+portmidi = "*"
+
+[profile.release]
+lto = true
