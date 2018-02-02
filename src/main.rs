@@ -19,6 +19,13 @@ use renderer::{ColorFormat, DepthFormat, Draw};
 mod renderer;
 mod ui;
 
+fn duration_seconds(duration: ::std::time::Duration) -> f32 {
+    let int = duration.as_secs() as f32;
+    let frac = duration.subsec_nanos() as f32 * 1e-9;
+
+    int + frac
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Note {
     pub channel: u16,
@@ -318,13 +325,13 @@ fn model(mut model: Model, msg: Msg) -> Model {
             model.grid.view.0.x = v0.x;
             model.grid.view.1.x = v1.x;
         },
-        Msg::Time(dt) => {
-            if let State::Playing(pos, mut ipos) = model.state {
-                let dpos = dt.subsec_nanos() as f32 * 1e-6;
-                let pos = pos + dpos;
+        Msg::Time(t) => {
+            if let State::Playing(_pos, mut ipos) = model.state {
+                let pos = duration_seconds(t);
+                let ticks = pos * model.score.measure_ticks as f32;
                 
-                if pos * model.score.measure_ticks as f32 > ipos as f32 {
-                    ipos = (pos * model.score.measure_ticks as f32) as i16;
+                if ticks as i16 > ipos {
+                    ipos = ticks as i16;
 
                     for &n in &model.score.notes {
                         if n.time.0 == ipos {
@@ -398,20 +405,25 @@ impl Backend {
         }
     }
 
-    fn subscriptions(&self) -> Option<Msg> {
-        self.moment.map(
-            |m| Msg::Time(m.elapsed())
-        )
+    fn subscriptions(&mut self) -> Option<Msg> {
+        if let Some(i) = self.moment {
+            let msg = Msg::Time(i.elapsed());
+
+            Some(msg)
+        } else {
+            None
+        }
     }
 
     fn run(&mut self, model: &mut Model) {
-        self.moment =
-            match model.state {
-                State::Playing(_, _) =>
-                    Some(Instant::now()),
-                _ =>
-                    None,
-            };
+        match model.state {
+            State::Playing(_, _) =>
+                if self.moment.is_none() {
+                    self.moment = Some(Instant::now())
+                },
+            _ =>
+                self.moment = None,
+        };
 
         for c in model.commands.drain(..) {
             match c {
