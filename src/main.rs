@@ -9,6 +9,7 @@ extern crate palette;
 
 extern crate portmidi;
 
+use std::time::Instant;
 use gfx::Device;
 use gfx_window_glutin::init as gfx_init;
 use cgmath::{Vector2, ElementWise};
@@ -18,7 +19,7 @@ use renderer::{ColorFormat, DepthFormat, Draw};
 mod renderer;
 mod ui;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Note {
     pub channel: u16,
     pub time: (i16, i16),
@@ -58,7 +59,8 @@ enum Msg {
     },
     RightDrag {
         vector: Vector2<f32>,
-    }
+    },
+    Time(std::time::Duration),
 }
 
 #[derive(Debug, Clone)]
@@ -185,6 +187,7 @@ impl From<Brick> for Note {
 enum State {
     Idle,
     Drawing(Brick),
+    Playing(f32, i16),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -193,28 +196,39 @@ enum Tool {
     Pencil,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Command {
+    NoteOn(Note),
+    NoteOff(Note),
+    Stop,
+}
+
 #[derive(Debug, Clone)]
 struct Model {
     state: State,
     tool: Tool,
     grid: ui::Grid,
+    play_pos: f32,
     score: Score,
+    commands: Vec<Command>,
 }
 
 impl Model {
     fn new() -> Self {
-        let mut score = Score::new();
+        let score = Score::new();
 
         let grid = ui::Grid::new(
             Vector2::new(1024.0, 768.0),
-            (Vector2::new(0.0, 0.0), Vector2::new(12.0, 155.0))
+            (Vector2::new(0.0, 0.0), Vector2::new(12.0, 124.0))
         );
 
         Model {
             state: State::Idle,
             tool: Tool::Pencil,
             grid,
-            score: score,
+            play_pos: 0.0,
+            score,
+            commands: vec![],
         }
     }
 }
@@ -304,6 +318,38 @@ fn model(mut model: Model, msg: Msg) -> Model {
             model.grid.view.0.x = v0.x;
             model.grid.view.1.x = v1.x;
         },
+        Msg::Time(dt) => {
+            if let State::Playing(pos, mut ipos) = model.state {
+                let dpos = dt.subsec_nanos() as f32 * 1e-6;
+                let pos = pos + dpos;
+                
+                if pos * model.score.measure_ticks as f32 > ipos as f32 {
+                    ipos = (pos * model.score.measure_ticks as f32) as i16;
+
+                    for &n in &model.score.notes {
+                        if n.time.0 == ipos {
+                            model.commands.push(Command::NoteOn(n))
+                        }
+
+                        if n.time.1 == ipos {
+                            model.commands.push(Command::NoteOff(n))
+                        }
+                    }
+                }
+
+                model.state = State::Playing(pos, ipos);
+            }
+        }
+        WindowEvent(KeyboardInput { input, .. })
+        if input.state == glutin::ElementState::Pressed => {
+            match (input.scancode, model.state) {
+                (0x39, State::Playing(_, _)) =>
+                    model.state = State::Idle,
+                (0x39, _) =>
+                    model.state = State::Playing(model.play_pos, model.play_pos.round() as i16),
+                _ => {},
+            }
+        },
         WindowEvent(Resized(x, y)) =>
             model.grid.size = Vector2::new(x as f32, y as f32),
         _ => (),
@@ -330,6 +376,53 @@ fn draw(model: &Model, screen_size: [f32; 2], renderer: &mut renderer::Renderer)
         view: model.grid.view,
     }
     .draw(screen_size.into(), renderer);
+
+    let play_pos =
+        if let State::Playing(pos, _) = model.state { pos }
+        else { model.play_pos };
+    let play_pos = (play_pos - model.grid.view.0.x) / (model.grid.view.1.x - model.grid.view.0.x);
+    ui::PlayBar {
+        position: play_pos,
+        style: model.grid.style,
+    }.draw(screen_size.into(), renderer);
+}
+
+struct Backend {
+    moment: Option<Instant>,
+}
+
+impl Backend {
+    fn new() -> Self {
+        Backend {
+            moment: None,
+        }
+    }
+
+    fn subscriptions(&self) -> Option<Msg> {
+        self.moment.map(
+            |m| Msg::Time(m.elapsed())
+        )
+    }
+
+    fn run(&mut self, model: &mut Model) {
+        self.moment =
+            match model.state {
+                State::Playing(_, _) =>
+                    Some(Instant::now()),
+                _ =>
+                    None,
+            };
+
+        for c in model.commands.drain(..) {
+            match c {
+                Command::NoteOn(n) =>
+                    println!("NOTE ON{:?}", n),
+                Command::NoteOff(n) =>
+                    println!("NOTE OFF{:?}", n),
+                _ => unimplemented!(),
+            }
+        }
+    }
 }
 
 pub fn main() {
@@ -349,6 +442,7 @@ pub fn main() {
     let encoder: gfx::Encoder<_, _> = factory.create_command_buffer().into();
     let mut renderer = renderer::Renderer::new(factory, encoder, main_color);
 
+    let mut backend = Backend::new();
     let mut intent = Intent::new();
     let mut the_model = Model::new();
 
@@ -372,16 +466,22 @@ pub fn main() {
             }
         });
 
+        for s in backend.subscriptions() {
+            the_model = model(the_model, s);
+        }
+
         for m in intent.messages() {
             the_model = model(the_model, m);
         }
+
         draw(&the_model, screen_size, &mut renderer);
 
         renderer.draw(screen_size, &mut device);
         window.swap_buffers().unwrap();
         device.cleanup();
 
-        // let dt = ::std::time::Duration::from_millis(10);
+        backend.run(&mut the_model);
+        // let dt = ::std::time::Duration::from_millis(8);
         // ::std::thread::sleep(dt)
     }
 }

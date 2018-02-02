@@ -119,6 +119,8 @@ impl Draw for Grid {
         let v_size = v1 - v0;
         let aspect = size.div_element_wise(v_size);
 
+        let scale = [0, 5, 10, 13, 18, 23, 28];
+
         let (y_first, y_last) = (
             v0.y.ceil() as i32,
             v1.y.floor() as i32
@@ -129,8 +131,9 @@ impl Draw for Grid {
                 if line % 31 != 0 { self.thin_width }
                 else { self.thick_width };
             let color =
-                if line % 31 != 0 { self.style.base2() }
-                else { self.style.base1() };
+                if line % 31 == 0 { self.style.base1() }
+                else if scale.contains(&(line % 31)) { self.style.blue() }
+                else { self.style.base2() };
 
             renderer.render_rect(
                 Vector2::new(0.0, pos - 0.5 * line_width),
@@ -162,6 +165,27 @@ impl Draw for Grid {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct PlayBar {
+    pub position: f32,
+    pub style: Style,
+}
+
+impl Draw for PlayBar {
+    fn draw<R: Render>(&self, size: Vector2<f32>, renderer: &mut R) {
+        let width = 2.0;
+        let color = self.style.violet();
+
+        let pos = self.position * size.x;
+
+        renderer.render_rect(
+            Vector2::new(pos - 0.5 * width, 0.0),
+            Vector2::new(pos + 0.5 * width, size.y),
+            color
+        );
+    }
+}
+
 pub struct NoteView {
     pub notes: Vec<super::Note>,
     pub view: (Vector2<f32>, Vector2<f32>),
@@ -176,6 +200,8 @@ impl Draw for NoteView {
         let aspect = size.div_element_wise(self.view.1 - self.view.0);
         let brick_width = 1.4 * aspect.y;
         let color = self.style.orange();
+        let border_color = self.style.base2();
+        let border_width = 1.0;
 
         for note in &self.notes {
             let start = Vector2::new(
@@ -192,8 +218,10 @@ impl Draw for NoteView {
 
             //println!("{:?} : {:?}", v0, v1);
 
-            renderer.render_rect(v0, v1, color);
+            let delta: Vector2<f32> = [border_width / 2.0; 2].into();
 
+            renderer.render_rect(v0, v1, border_color);
+            renderer.render_rect(v0 + delta, v1 - delta, color);
         }
     }
 }
