@@ -226,7 +226,7 @@ impl Model {
 
         let grid = ui::Grid::new(
             Vector2::new(1024.0, 768.0),
-            (Vector2::new(0.0, 0.0), Vector2::new(12.0, 124.0))
+            (Vector2::new(0.0, 31.0), Vector2::new(12.0, 155.0))
         );
 
         Model {
@@ -329,7 +329,7 @@ fn model(mut model: Model, msg: Msg) -> Model {
             if let State::Playing(_pos, mut ipos) = model.state {
                 let pos = duration_seconds(t);
                 let ticks = pos * model.score.measure_ticks as f32;
-                
+
                 if ticks as i16 > ipos {
                     ipos = ticks as i16;
 
@@ -350,8 +350,11 @@ fn model(mut model: Model, msg: Msg) -> Model {
         WindowEvent(KeyboardInput { input, .. })
         if input.state == glutin::ElementState::Pressed => {
             match (input.scancode, model.state) {
-                (0x39, State::Playing(_, _)) =>
-                    model.state = State::Idle,
+                (0x39, State::Playing(_, _)) => {
+                    model.commands.push(Command::Stop);
+
+                    model.state = State::Idle
+                },
                 (0x39, _) =>
                     model.state = State::Playing(model.play_pos, model.play_pos.round() as i16),
                 _ => {},
@@ -427,17 +430,43 @@ impl Backend {
 
         for c in model.commands.drain(..) {
             match c {
-                Command::NoteOn(n) =>
-                    println!("NOTE ON{:?}", n),
-                Command::NoteOff(n) =>
-                    println!("NOTE OFF{:?}", n),
-                _ => unimplemented!(),
+                Command::NoteOn(n) => {
+                    match n.pitch / 31 {
+                        0 => println!("0a{}_+", n.pitch % 31),
+                        1 => println!("0b{}_+", n.pitch % 31),
+                        2 => println!("0c{}_+", n.pitch % 31),
+                        3 => println!("0d{}_+", n.pitch % 31),
+                        4 => println!("0e{}_+", n.pitch % 31),
+                        5 => println!("0f{}_+", n.pitch % 31),
+                        6 => println!("0g{}_+", n.pitch % 31),
+                        7 => println!("0h{}_+", n.pitch % 31),
+                        _ => (),
+                    }
+                },
+                Command::NoteOff(n) => {
+                    match n.pitch / 31 {
+                        0 => println!("0a{}-", n.pitch % 31),
+                        1 => println!("0b{}-", n.pitch % 31),
+                        2 => println!("0c{}-", n.pitch % 31),
+                        3 => println!("0d{}-", n.pitch % 31),
+                        4 => println!("0e{}-", n.pitch % 31),
+                        5 => println!("0f{}-", n.pitch % 31),
+                        6 => println!("0g{}-", n.pitch % 31),
+                        7 => println!("0h{}-", n.pitch % 31),
+                        _ => (),
+                    }
+                },
+                Command::Stop => {
+                    println!("s");
+                },
             }
         }
     }
 }
 
 pub fn main() {
+    println!("31edo");
+
     use glutin::GlContext;
 
     let mut events_loop = glutin::EventsLoop::new();
