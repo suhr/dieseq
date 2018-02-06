@@ -9,6 +9,7 @@ extern crate palette;
 
 extern crate portmidi;
 
+use glutin::ModifiersState;
 use std::time::Instant;
 use gfx::Device;
 use gfx_window_glutin::init as gfx_init;
@@ -24,6 +25,26 @@ fn duration_seconds(duration: ::std::time::Duration) -> f32 {
     let frac = duration.subsec_nanos() as f32 * 1e-9;
 
     int + frac
+}
+
+fn min_max<T: PartialOrd>(v0: T, v1: T) -> (T, T) {
+    if v0 > v1 { (v1, v0) }
+    else { (v0, v1) }
+}
+
+fn normalize_square(a0: Vector2<f32>, a1: Vector2<f32>) -> (Vector2<f32>, Vector2<f32>) {
+    let (x0, x1) = min_max(a0.x, a1.x);
+    let (y0, y1) = min_max(a0.y, a1.y);
+
+    (
+        [x0, y0].into(),
+        [x1, y1].into(),
+    )
+}
+
+fn rects_overlap(a0: Vector2<f32>, a1: Vector2<f32>, b0: Vector2<f32>, b1: Vector2<f32>) -> bool {
+    a0.x < b1.x && a1.x > b0.x &&
+    a1.y > b0.y && a0.y < b1.y
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -53,6 +74,7 @@ enum Msg {
     WindowEvent(glutin::WindowEvent),
     MouseWheel {
         position: Vector2<f32>,
+        modifiers: ModifiersState,
         delta: (f32, f32),
     },
     LeftPressed {
@@ -62,6 +84,7 @@ enum Msg {
         position: Vector2<f32>,
     },
     LeftDrag {
+        position: Vector2<f32>,
         vector: Vector2<f32>,
     },
     RightDrag {
@@ -93,10 +116,11 @@ impl Intent {
     fn intent(&mut self, event: glutin::WindowEvent) {
         use glutin::WindowEvent::*;
         match event {
-            MouseWheel {delta, ..} => {
+            MouseWheel {delta, modifiers, ..} => {
                 if let glutin::MouseScrollDelta::LineDelta(x, y) = delta {
                     self.mailbox.push(Msg::MouseWheel {
                         position: self.mouse_pos,
+                        modifiers,
                         delta: (x, y),
                     })
                 }
@@ -136,6 +160,7 @@ impl Intent {
                 if let Some(instant) = self.lbutton_pressed {
                     if instant.elapsed() >= std::time::Duration::from_millis(50) {
                         self.mailbox.push(Msg::LeftDrag {
+                            position,
                             vector: position - self.mouse_pos
                         });
                     }
@@ -190,11 +215,15 @@ impl From<Brick> for Note {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 enum State {
     Idle,
     Drawing(Brick),
     Playing(f32, i16),
+    PointSelected(Vector2<f32>),
+    NotesSelected(Vec<Note>),
+    SelectFrame(Vector2<f32>, Vector2<f32>),
+    MovingNotes(),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -245,30 +274,53 @@ fn model(mut model: Model, msg: Msg) -> Model {
     use Msg::*;
 
     match msg {
-        Msg::MouseWheel { position, delta: (_, y) } => {
-            let start = model.grid.view.0.x;
-            let end = model.grid.view.1.x;
-            let y = -y;
+        Msg::MouseWheel { position, modifiers, delta: (_, y) } => {
+            if modifiers.ctrl {
+                let start = model.grid.view.0.y;
+                let end = model.grid.view.1.y;
+                let y = -y;
 
-            let k =
-                if y < 0.0 || (end - start) <= model.grid.size.x / 16.0 {
-                    (1.07_f32).powf(y)
-                }
-                else {
-                    1.0
-                };
+                let split_ratio = position.y / model.grid.size.y;
+                let split_point = start + (end - start) * split_ratio;
 
-            let split_ratio = position.x / model.grid.size.x;
-            let split_point = start + (end - start) * split_ratio;
+                let k =
+                    if y < 0.0 || (end - start) <= 8.0 * 31.0 {
+                        (1.07_f32).powf(y)
+                    }
+                    else {
+                        1.0
+                    };
 
-            model.grid.view.0.x = (start - split_point) * k + split_point;
-            model.grid.view.1.x = (end - split_point) * k + split_point;
+                model.grid.view.0.y = (start - split_point) * k + split_point;
+                model.grid.view.1.y = (end - split_point) * k + split_point;
+            }
+            else {
+                let start = model.grid.view.0.x;
+                let end = model.grid.view.1.x;
+                let y = -y;
 
+                let k =
+                    if y < 0.0 || (end - start) <= model.grid.size.x / 16.0 {
+                        (1.07_f32).powf(y)
+                    }
+                    else {
+                        1.0
+                    };
+
+                let split_ratio = position.x / model.grid.size.x;
+                let split_point = start + (end - start) * split_ratio;
+
+                model.grid.view.0.x = (start - split_point) * k + split_point;
+                model.grid.view.1.x = (end - split_point) * k + split_point;
+            }
+        },
+        Msg::LeftPressed { position } if model.tool == Tool::Arrow => {
+            model.state = State::PointSelected(position);
         },
         Msg::LeftPressed { position } if model.tool == Tool::Pencil => {
-            let view_pos = model.grid.view.0 + model.grid.scale_vector(position);
+            let view_pos = model.grid.view_position(position);
 
-            let time = view_pos.x * model.score.measure_ticks as f32;
+            let time = (view_pos.x * model.score.measure_ticks as f32 / 2.0).round() * 2.0;
             let pitch = view_pos.y;
 
             model.state = State::Drawing(Brick {
@@ -277,6 +329,33 @@ fn model(mut model: Model, msg: Msg) -> Model {
             });
         },
         Msg::LeftReleased { .. } => {
+            if let State::PointSelected(point) = model.state {
+                let time = model.grid.view_position(point).x;
+
+                model.play_pos = time;
+                model.state = State::Idle;
+            }
+            if let State::SelectFrame(v0, v1) = model.state {
+                let (v0, v1) = normalize_square(
+                    model.grid.view_position(v0),
+                    model.grid.view_position(v1)
+                );
+
+                let ticks = { model.score.measure_ticks as f32 };
+                let framed: Vec<Note> = model.score.notes.iter().filter(|n| {
+                    let n0 = Vector2::new(n.time.0 as f32 / ticks, n.pitch as f32 - 0.5);
+                    let n1 = Vector2::new(n.time.1 as f32 / ticks, n.pitch as f32 + 0.5);
+
+                    rects_overlap(v0, v1, n0, n1)
+                }).cloned().collect();
+
+                if framed.len() == 0 {
+                    model.state = State::Idle
+                }
+                else {
+                    model.state = State::NotesSelected(framed)
+                }
+            };
             if let State::Drawing(brick) = model.state {
                 if brick.time.0.round() != brick.time.1.round() {
                     model.score.notes.push(brick.into())
@@ -296,20 +375,28 @@ fn model(mut model: Model, msg: Msg) -> Model {
                 model.state = State::Idle
             }
         },
-        Msg::LeftDrag { vector } => {
-            let shift = model.grid.scale_vector(vector);
+        Msg::LeftDrag { position, .. } => {
+            let view_pos = model.grid.view_position(position);
 
             if let State::Drawing(brick) = model.state {
                 let brick = Brick {
-                    time: (brick.time.0, brick.time.1 + shift.x * model.score.measure_ticks as f32),
-                    pitch: brick.pitch + shift.y,
+                    time: (brick.time.0, view_pos.x * model.score.measure_ticks as f32),
+                    pitch: view_pos.y,
                 };
 
                 model.state = State::Drawing(brick)
             }
+
+            if let State::PointSelected(point) = model.state {
+                model.state = State::SelectFrame(point, position)
+            }
+
+            if let State::SelectFrame(start, _) = model.state {
+                model.state = State::SelectFrame(start, position)
+            }
         },
         Msg::RightDrag { vector } => {
-            let shift = -model.grid.scale_vector(vector);
+            let shift = -model.grid.view_vector(vector);
 
             let v0 = model.grid.view.0 + shift;
             let v1 = model.grid.view.1 + shift;
@@ -327,7 +414,7 @@ fn model(mut model: Model, msg: Msg) -> Model {
         },
         Msg::Time(t) => {
             if let State::Playing(_pos, mut ipos) = model.state {
-                let pos = duration_seconds(t);
+                let pos = model.play_pos + duration_seconds(t);
                 let ticks = pos * model.score.measure_ticks as f32;
 
                 if ticks as i16 > ipos {
@@ -349,15 +436,30 @@ fn model(mut model: Model, msg: Msg) -> Model {
         }
         WindowEvent(KeyboardInput { input, .. })
         if input.state == glutin::ElementState::Pressed => {
-            match (input.scancode, model.state) {
-                (0x39, State::Playing(_, _)) => {
+            match (input.scancode, &model.state.clone()) {
+                (0x02, _) => {
+                    model.tool = Tool::Arrow;
+                },
+                (0x03, _) => {
+                    model.tool = Tool::Pencil;
+                },
+                (0x39, &State::Playing(_, _)) => {
                     model.commands.push(Command::Stop);
 
                     model.state = State::Idle
                 },
                 (0x39, _) =>
-                    model.state = State::Playing(model.play_pos, model.play_pos.round() as i16),
-                _ => {},
+                    model.state = State::Playing(
+                        model.play_pos,
+                        (model.play_pos * model.score.measure_ticks as f32).round() as i16 - 1
+                    ),
+                (0x20, &State::NotesSelected(ref selected)) => {
+                    model.score.notes.retain(|n| !selected.contains(n));
+
+                    model.state = State::Idle;
+                },
+                //(code, _) => { println!("{:x}", code); },
+                _ => (),
             }
         },
         WindowEvent(Resized(x, y)) =>
@@ -379,11 +481,32 @@ fn draw(model: &Model, screen_size: [f32; 2], renderer: &mut renderer::Renderer)
         notes.push(brick.into())
     }
 
+    if let State::NotesSelected(ref framed) = model.state {
+        notes.retain(|n| !framed.contains(n));
+
+        ui::NoteView {
+            notes: framed.clone(),
+            measure_ticks: model.score.measure_ticks,
+            style: model.grid.style,
+            view: model.grid.view,
+            selected: true,
+        }.draw(screen_size.into(), renderer)
+    }
+
+    if let State::SelectFrame(v0, v1) = model.state {
+        let (from, to) = normalize_square(v0, v1);
+        ui::Frame {
+            from, to,
+            style: model.grid.style,
+        }.draw(screen_size.into(), renderer)
+    }
+
     ui::NoteView {
         notes,
         measure_ticks: model.score.measure_ticks,
         style: model.grid.style,
         view: model.grid.view,
+        selected: false,
     }
     .draw(screen_size.into(), renderer);
 

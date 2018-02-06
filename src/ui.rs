@@ -106,10 +106,14 @@ impl Grid {
         }
     }
 
-    pub fn scale_vector(&self, position: Vector2<f32>) -> Vector2<f32> {
+    pub fn view_vector(&self, vector: Vector2<f32>) -> Vector2<f32> {
         let view_size = self.view.1 - self.view.0;
 
-        position.div_element_wise(self.size).mul_element_wise(view_size)
+        vector.div_element_wise(self.size).mul_element_wise(view_size)
+    }
+
+    pub fn view_position(&self, position: Vector2<f32>) -> Vector2<f32> {
+        self.view.0 + self.view_vector(position)
     }
 }
 
@@ -119,7 +123,7 @@ impl Draw for Grid {
         let v_size = v1 - v0;
         let aspect = size.div_element_wise(v_size);
 
-        let scale = [0, 5, 10, 13, 18, 23, 28];
+        let naturals = [0, 5, 10, 13, 18, 23, 28];
 
         let (y_first, y_last) = (
             v0.y.ceil() as i32,
@@ -132,7 +136,7 @@ impl Draw for Grid {
                 else { self.thick_width };
             let color =
                 if line % 31 == 0 { self.style.base1() }
-                else if scale.contains(&(line % 31)) { self.style.blue() }
+                else if naturals.contains(&(line % 31)) { self.style.blue() }
                 else { self.style.base2() };
 
             renderer.render_rect(
@@ -191,6 +195,7 @@ pub struct NoteView {
     pub view: (Vector2<f32>, Vector2<f32>),
     pub measure_ticks: u16,
     pub style: Style,
+    pub selected: bool,
 }
 
 impl Draw for NoteView {
@@ -199,7 +204,9 @@ impl Draw for NoteView {
 
         let aspect = size.div_element_wise(self.view.1 - self.view.0);
         let brick_width = 1.4 * aspect.y;
-        let color = self.style.orange();
+        let color =
+            if self.selected { self.style.red() }
+            else { self.style.orange() };
         let border_color = self.style.base2();
         let border_width = 1.0;
 
@@ -216,12 +223,44 @@ impl Draw for NoteView {
             let v0 = (start - self.view.0).mul_element_wise(aspect) - Vector2::new(0.0, brick_width / 2.0);
             let v1 = (end - self.view.0).mul_element_wise(aspect) + Vector2::new(0.0, brick_width / 2.0);
 
-            //println!("{:?} : {:?}", v0, v1);
-
             let delta: Vector2<f32> = [border_width / 2.0; 2].into();
 
             renderer.render_rect(v0, v1, border_color);
             renderer.render_rect(v0 + delta, v1 - delta, color);
         }
+    }
+}
+
+pub struct Frame {
+    pub from: Vector2<f32>,
+    pub to: Vector2<f32>,
+    pub style: Style,
+}
+
+impl Draw for Frame {
+    fn draw<R: Render>(&self, size: Vector2<f32>, renderer: &mut R) {
+        let border_width = 2.0;
+        let color = self.style.base0();
+
+        renderer.render_rect(
+            [self.from.x - border_width / 2.0, self.from.y - border_width / 2.0].into(),
+            [self.to.x + border_width / 2.0, self.from.y + border_width / 2.0].into(),
+            color
+        );
+        renderer.render_rect(
+            [self.from.x - border_width / 2.0, self.from.y - border_width / 2.0].into(),
+            [self.from.x + border_width / 2.0, self.to.y + border_width / 2.0].into(),
+            color
+        );
+        renderer.render_rect(
+            [self.from.x - border_width / 2.0, self.to.y - border_width / 2.0].into(),
+            [self.to.x + border_width / 2.0, self.to.y + border_width / 2.0].into(),
+            color
+        );
+        renderer.render_rect(
+            [self.to.x - border_width / 2.0, self.from.y - border_width / 2.0].into(),
+            [self.to.x + border_width / 2.0, self.to.y + border_width / 2.0].into(),
+            color
+        );
     }
 }
