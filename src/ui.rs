@@ -3,7 +3,7 @@ use ::cgmath::{ElementWise, Vector2};
 
 use ::renderer::{Draw, Render};
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 // Hard-coded Solarized theme
 // This is wrong, but I'm lazy. Goodbye, corners! ✂
 pub enum Style {
@@ -85,7 +85,7 @@ impl Style {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Grid {
     pub size: Vector2<f32>,
     pub view: (Vector2<f32>, Vector2<f32>),

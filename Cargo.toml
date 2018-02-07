@@ -8,9 +8,15 @@ gfx = "0.17"
 gfx_device_gl = "*"
 gfx_window_glutin = "*"
 glutin = "*"
-cgmath = "*"
+
+cgmath = { version = "*", features = ["serde"] }
 palette = "*"
 portmidi = "*"
+clap = "2"
+
+serde = "*"
+serde_derive = "*"
+ron = "*"
 
 [profile.release]
 lto = true

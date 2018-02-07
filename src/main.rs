@@ -1,13 +1,19 @@
 #![allow(dead_code)]
 
 #[macro_use] extern crate gfx;
+#[macro_use] extern crate serde_derive;
+
 extern crate gfx_device_gl;
 extern crate gfx_window_glutin;
 extern crate glutin;
+
 extern crate cgmath;
 extern crate palette;
-
+extern crate clap;
 extern crate portmidi;
+
+extern crate serde;
+extern crate ron;
 
 use glutin::ModifiersState;
 use std::time::Instant;
@@ -44,17 +50,17 @@ fn normalize_square(a0: Vector2<f32>, a1: Vector2<f32>) -> (Vector2<f32>, Vector
 
 fn rects_overlap(a0: Vector2<f32>, a1: Vector2<f32>, b0: Vector2<f32>, b1: Vector2<f32>) -> bool {
     a0.x < b1.x && a1.x > b0.x &&
-    a1.y > b0.y && a0.y < b1.y
+    a0.y < b1.y && a1.y > b0.y
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Note {
     pub channel: u16,
     pub time: (i16, i16),
     pub pitch: i16,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct Score {
     measure_ticks: u16,
     notes: Vec<Note>,
@@ -237,10 +243,20 @@ enum Command {
     NoteOn(Note),
     NoteOff(Note),
     Stop,
+    Save,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct Project {
+    score: Score,
+    grid: ui::Grid,
+    play_pos: f32,
+}
+
+#[derive(Debug)]
 struct Model {
+    med: ::std::process::Child,
+    file: Option<::std::path::PathBuf>,
     state: State,
     tool: Tool,
     grid: ui::Grid,
@@ -251,20 +267,52 @@ struct Model {
 
 impl Model {
     fn new() -> Self {
+        Self::with_file(None)
+    }
+
+    fn with_file(path: Option<::std::path::PathBuf>) -> Self {
+        use std::process::{Command, Stdio};
+        use std::io::Write;
+
         let score = Score::new();
 
         let grid = ui::Grid::new(
             Vector2::new(1024.0, 768.0),
-            (Vector2::new(0.0, 31.0), Vector2::new(12.0, 155.0))
+            (Vector2::new(-0.25, 31.0), Vector2::new(12.0, 155.0))
         );
 
+        let mut med = Command::new("med")
+            .args(&["--pipe"])
+            .stdin(Stdio::piped())
+            .spawn().unwrap();
+
+        {
+            let stdin = med.stdin.as_mut().unwrap();
+            stdin.write_all(format!("31edo\n").as_bytes()).unwrap();
+        }
+
         Model {
+            med,
+            file: path,
             state: State::Idle,
             tool: Tool::Pencil,
             grid,
             play_pos: 0.0,
             score,
             commands: vec![],
+        }
+    }
+
+    fn from_file(path: ::std::path::PathBuf) -> Self {
+        let mut file = std::fs::File::open(&path).unwrap();
+        let proj: Project = ron::de::from_reader(&mut file).unwrap();
+
+        Model {
+            file: Some(path.clone()),
+            score: proj.score,
+            grid: proj.grid,
+            play_pos: proj.play_pos,
+            ..Self::with_file(Some(path))
         }
     }
 }
@@ -458,6 +506,9 @@ fn model(mut model: Model, msg: Msg) -> Model {
 
                     model.state = State::Idle;
                 },
+                (0x1f, _) => {
+                    model.commands.push(Command::Save)
+                },
                 //(code, _) => { println!("{:x}", code); },
                 _ => (),
             }
@@ -552,35 +603,52 @@ impl Backend {
         };
 
         for c in model.commands.drain(..) {
+            use std::io::Write;
+            let stdin = model.med.stdin.as_mut().unwrap();
+
             match c {
                 Command::NoteOn(n) => {
                     match n.pitch / 31 {
-                        0 => println!("0a{}_+", n.pitch % 31),
-                        1 => println!("0b{}_+", n.pitch % 31),
-                        2 => println!("0c{}_+", n.pitch % 31),
-                        3 => println!("0d{}_+", n.pitch % 31),
-                        4 => println!("0e{}_+", n.pitch % 31),
-                        5 => println!("0f{}_+", n.pitch % 31),
-                        6 => println!("0g{}_+", n.pitch % 31),
-                        7 => println!("0h{}_+", n.pitch % 31),
+                        0 => drop(stdin.write_all(format!("0a{}_+\n", n.pitch % 31).as_bytes())),
+                        1 => drop(stdin.write_all(format!("0b{}_+\n", n.pitch % 31).as_bytes())),
+                        2 => drop(stdin.write_all(format!("0c{}_+\n", n.pitch % 31).as_bytes())),
+                        3 => drop(stdin.write_all(format!("0d{}_+\n", n.pitch % 31).as_bytes())),
+                        4 => drop(stdin.write_all(format!("0e{}_+\n", n.pitch % 31).as_bytes())),
+                        5 => drop(stdin.write_all(format!("0f{}_+\n", n.pitch % 31).as_bytes())),
+                        6 => drop(stdin.write_all(format!("0g{}_+\n", n.pitch % 31).as_bytes())),
+                        7 => drop(stdin.write_all(format!("0h{}_+\n", n.pitch % 31).as_bytes())),
                         _ => (),
                     }
                 },
                 Command::NoteOff(n) => {
                     match n.pitch / 31 {
-                        0 => println!("0a{}-", n.pitch % 31),
-                        1 => println!("0b{}-", n.pitch % 31),
-                        2 => println!("0c{}-", n.pitch % 31),
-                        3 => println!("0d{}-", n.pitch % 31),
-                        4 => println!("0e{}-", n.pitch % 31),
-                        5 => println!("0f{}-", n.pitch % 31),
-                        6 => println!("0g{}-", n.pitch % 31),
-                        7 => println!("0h{}-", n.pitch % 31),
+                        0 => drop(stdin.write_all(format!("0a{}\n", n.pitch % 31).as_bytes())),
+                        1 => drop(stdin.write_all(format!("0b{}\n", n.pitch % 31).as_bytes())),
+                        2 => drop(stdin.write_all(format!("0c{}\n", n.pitch % 31).as_bytes())),
+                        3 => drop(stdin.write_all(format!("0d{}\n", n.pitch % 31).as_bytes())),
+                        4 => drop(stdin.write_all(format!("0e{}\n", n.pitch % 31).as_bytes())),
+                        5 => drop(stdin.write_all(format!("0f{}\n", n.pitch % 31).as_bytes())),
+                        6 => drop(stdin.write_all(format!("0g{}\n", n.pitch % 31).as_bytes())),
+                        7 => drop(stdin.write_all(format!("0h{}\n", n.pitch % 31).as_bytes())),
                         _ => (),
                     }
                 },
                 Command::Stop => {
-                    println!("s");
+                    drop(stdin.write_all(format!("s").as_bytes()))
+                },
+                Command::Save => {
+                    if let Some(ref path) = model.file {
+                        let proj = Project {
+                            score: model.score.clone(),
+                            grid: model.grid.clone(),
+                            play_pos: model.play_pos,
+                        };
+
+                        let output = ron::ser::to_string(&proj).unwrap();
+
+                        let mut file = ::std::fs::File::create(path).unwrap();
+                        drop(file.write_all(output.as_bytes()));
+                    }
                 },
             }
         }
@@ -588,7 +656,17 @@ impl Backend {
 }
 
 pub fn main() {
-    println!("31edo");
+    let matches = clap::App::new("Dieseq")
+        .version(env!("CARGO_PKG_VERSION"))
+        .about("A mictotonal sequencer")
+        .arg(
+            clap::Arg::with_name("file")
+            .help("Dieseq project file")
+            .index(1)
+        )
+        .get_matches();
+
+    let file = matches.value_of("file");
 
     use glutin::GlContext;
 
@@ -608,7 +686,24 @@ pub fn main() {
 
     let mut backend = Backend::new();
     let mut intent = Intent::new();
-    let mut the_model = Model::new();
+    let mut the_model =
+        if let Some(path) = file {
+            let path = ::std::path::Path::new(path);
+
+            if path.is_file() {
+                Model::from_file(path.to_owned())
+            }
+            else if !path.exists() {
+                Model::with_file(Some(path.to_owned()))
+            }
+            else {
+                eprintln!("Invalid file name: {}", path.to_string_lossy());
+                return
+            }
+        }
+        else {
+            Model::new()
+        };
 
     let mut running = true;
     let mut screen_size = [1024.0, 768.0];
