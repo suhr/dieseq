@@ -622,19 +622,19 @@ impl Backend {
                 },
                 Command::NoteOff(n) => {
                     match n.pitch / 31 {
-                        0 => drop(stdin.write_all(format!("0a{}\n", n.pitch % 31).as_bytes())),
-                        1 => drop(stdin.write_all(format!("0b{}\n", n.pitch % 31).as_bytes())),
-                        2 => drop(stdin.write_all(format!("0c{}\n", n.pitch % 31).as_bytes())),
-                        3 => drop(stdin.write_all(format!("0d{}\n", n.pitch % 31).as_bytes())),
-                        4 => drop(stdin.write_all(format!("0e{}\n", n.pitch % 31).as_bytes())),
-                        5 => drop(stdin.write_all(format!("0f{}\n", n.pitch % 31).as_bytes())),
-                        6 => drop(stdin.write_all(format!("0g{}\n", n.pitch % 31).as_bytes())),
-                        7 => drop(stdin.write_all(format!("0h{}\n", n.pitch % 31).as_bytes())),
+                        0 => drop(stdin.write_all(format!("0a{}-\n", n.pitch % 31).as_bytes())),
+                        1 => drop(stdin.write_all(format!("0b{}-\n", n.pitch % 31).as_bytes())),
+                        2 => drop(stdin.write_all(format!("0c{}-\n", n.pitch % 31).as_bytes())),
+                        3 => drop(stdin.write_all(format!("0d{}-\n", n.pitch % 31).as_bytes())),
+                        4 => drop(stdin.write_all(format!("0e{}-\n", n.pitch % 31).as_bytes())),
+                        5 => drop(stdin.write_all(format!("0f{}-\n", n.pitch % 31).as_bytes())),
+                        6 => drop(stdin.write_all(format!("0g{}-\n", n.pitch % 31).as_bytes())),
+                        7 => drop(stdin.write_all(format!("0h{}-\n", n.pitch % 31).as_bytes())),
                         _ => (),
                     }
                 },
                 Command::Stop => {
-                    drop(stdin.write_all(format!("s").as_bytes()))
+                    drop(stdin.write_all(format!("s\n").as_bytes()))
                 },
                 Command::Save => {
                     if let Some(ref path) = model.file {
