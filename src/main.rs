@@ -10,7 +10,6 @@ extern crate glutin;
 extern crate cgmath;
 extern crate palette;
 extern crate clap;
-extern crate portmidi;
 
 extern crate serde;
 extern crate ron;
@@ -21,7 +20,7 @@ use gfx::Device;
 use gfx_window_glutin::init as gfx_init;
 use cgmath::{Vector2, ElementWise};
 
-use renderer::{ColorFormat, DepthFormat, Draw};
+use renderer::{ColorFormat, DepthFormat};
 
 mod renderer;
 mod ui;
@@ -161,7 +160,7 @@ impl Intent {
 
             },
             CursorMoved { position, ..} => {
-                let position = Vector2::new(position.0 as f32, self.screen_size.y - position.1 as f32);
+                let position = Vector2::new(position.x as f32, self.screen_size.y - position.y as f32);
 
                 if let Some(instant) = self.lbutton_pressed {
                     if instant.elapsed() >= std::time::Duration::from_millis(50) {
@@ -180,9 +179,9 @@ impl Intent {
                 }
                 self.mouse_pos = position;
             },
-            Resized(x, y) => {
-                self.screen_size = [x as f32, y as f32].into();
-                self.mailbox.push(Msg::WindowEvent(Resized(x, y)))
+            Resized(sz) => {
+                self.screen_size = [sz.width as f32, sz.height as f32].into();
+                self.mailbox.push(Msg::WindowEvent(Resized(sz)))
             },
             ev =>
                 self.mailbox.push(Msg::WindowEvent(ev))
@@ -513,18 +512,19 @@ fn model(mut model: Model, msg: Msg) -> Model {
                 _ => (),
             }
         },
-        WindowEvent(Resized(x, y)) =>
-            model.grid.size = Vector2::new(x as f32, y as f32),
+        WindowEvent(Resized(sz)) =>
+            model.grid.size = Vector2::new(sz.width as f32, sz.height as f32),
         _ => (),
     }
 
     model
 }
 
-fn draw(model: &Model, screen_size: [f32; 2], renderer: &mut renderer::Renderer) {
-    use renderer::Render;
+fn draw(model: &Model, screen_size: [f32; 2], renderer: &mut renderer::Renderer, scene: &mut renderer::Scene) {
     renderer.clear(model.grid.style.base3());
-    model.grid.draw(screen_size.into(), renderer);
+    scene.clear();
+
+    model.grid.draw(screen_size.into(), scene);
 
     let mut notes = model.score.notes.clone();
 
@@ -541,7 +541,7 @@ fn draw(model: &Model, screen_size: [f32; 2], renderer: &mut renderer::Renderer)
             style: model.grid.style,
             view: model.grid.view,
             selected: true,
-        }.draw(screen_size.into(), renderer)
+        }.draw(screen_size.into(), scene)
     }
 
     if let State::SelectFrame(v0, v1) = model.state {
@@ -549,7 +549,7 @@ fn draw(model: &Model, screen_size: [f32; 2], renderer: &mut renderer::Renderer)
         ui::Frame {
             from, to,
             style: model.grid.style,
-        }.draw(screen_size.into(), renderer)
+        }.draw(screen_size.into(), scene)
     }
 
     ui::NoteView {
@@ -559,7 +559,7 @@ fn draw(model: &Model, screen_size: [f32; 2], renderer: &mut renderer::Renderer)
         view: model.grid.view,
         selected: false,
     }
-    .draw(screen_size.into(), renderer);
+    .draw(screen_size.into(), scene);
 
     let play_pos =
         if let State::Playing(pos, _) = model.state { pos }
@@ -568,7 +568,15 @@ fn draw(model: &Model, screen_size: [f32; 2], renderer: &mut renderer::Renderer)
     ui::PlayBar {
         position: play_pos,
         style: model.grid.style,
-    }.draw(screen_size.into(), renderer);
+    }.draw(screen_size.into(), scene);
+}
+
+struct MainState {
+
+}
+
+impl MainState {
+
 }
 
 struct Backend {
@@ -674,7 +682,7 @@ pub fn main() {
 
     let builder = glutin::WindowBuilder::new()
         .with_title("Dieseq".to_string())
-        .with_dimensions(1024, 768);
+        .with_dimensions((1024, 768).into());
     let context = glutin::ContextBuilder::new()
         .with_multisampling(8)
         .with_vsync(true);
@@ -683,6 +691,7 @@ pub fn main() {
 
     let encoder: gfx::Encoder<_, _> = factory.create_command_buffer().into();
     let mut renderer = renderer::Renderer::new(factory, encoder, main_color);
+    let mut scene = renderer::Scene::new();
 
     let mut backend = Backend::new();
     let mut intent = Intent::new();
@@ -712,11 +721,11 @@ pub fn main() {
             use glutin::WindowEvent::*;
             if let glutin::Event::WindowEvent {event, ..} = ev {
                 match event {
-                    Closed =>
+                    CloseRequested =>
                         running = false,
-                    Resized(w, h) => {
-                        screen_size = [w as f32, h as f32];
-                        intent.intent(Resized(w, h));
+                    Resized(sz) => {
+                        screen_size = [sz.width as f32, sz.height as f32];
+                        intent.intent(Resized(sz));
                         renderer.update_views(&window, &mut main_depth);
                     },
                     ev =>
@@ -733,13 +742,14 @@ pub fn main() {
             the_model = model(the_model, m);
         }
 
-        draw(&the_model, screen_size, &mut renderer);
+        draw(&the_model, screen_size, &mut renderer, &mut scene);
 
-        renderer.draw(screen_size, &mut device);
+        renderer.render_scene(&scene, screen_size, &mut device);
         window.swap_buffers().unwrap();
         device.cleanup();
 
         backend.run(&mut the_model);
+        ::std::thread::yield_now()
         // let dt = ::std::time::Duration::from_millis(8);
         // ::std::thread::sleep(dt)
     }

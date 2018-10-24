@@ -1,7 +1,8 @@
-use ::palette::pixel::Srgb;
+use ::palette::Pixel;
+use ::palette::rgb::Srgba;
 use ::cgmath::{ElementWise, Vector2};
 
-use ::renderer::{Draw, Render};
+use ::renderer::{Render, Mesh, Scene};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 // Hard-coded Solarized theme
@@ -12,8 +13,8 @@ pub enum Style {
 }
 
 fn u8_to_rgb(r: u8, g: u8, b: u8) -> [f32; 4] {
-    let rgb: ::palette::Rgb = Srgb::new_u8(r, g, b).into();
-    rgb.to_pixel()
+    let rgb: ::palette::rgb::Rgba = Srgba::new(r, g, b, 0xff).into_format();
+    rgb.into_linear().into_raw()
 }
 
 impl Style {
@@ -117,8 +118,10 @@ impl Grid {
     }
 }
 
-impl Draw for Grid {
-    fn draw<R: Render>(&self, size: Vector2<f32>, renderer: &mut R) {
+impl Grid {
+    pub fn draw(&self, size: Vector2<f32>, scene: &mut Scene) {
+        let mut mesh = Mesh::new();
+
         let (v0, v1) = self.view;
         let v_size = v1 - v0;
         let aspect = size.div_element_wise(v_size);
@@ -139,7 +142,7 @@ impl Draw for Grid {
                 else if naturals.contains(&(line % 31)) { self.style.blue() }
                 else { self.style.base2() };
 
-            renderer.render_rect(
+            mesh.add_rect(
                 Vector2::new(0.0, pos - 0.5 * line_width),
                 Vector2::new(self.size.x, pos + 0.5 * line_width),
                 color
@@ -160,12 +163,14 @@ impl Draw for Grid {
                 if line % self.beats as i32 != 0 { self.style.base3() }
                 else { self.style.base2() };
 
-            renderer.render_rect(
+            mesh.add_rect(
                 Vector2::new(pos - 0.5 * line_width, 0.0),
                 Vector2::new(pos + 0.5 * line_width, self.size.y),
                 color
             )
         }
+
+        scene.add_mesh(mesh)
     }
 }
 
@@ -175,18 +180,22 @@ pub struct PlayBar {
     pub style: Style,
 }
 
-impl Draw for PlayBar {
-    fn draw<R: Render>(&self, size: Vector2<f32>, renderer: &mut R) {
+impl PlayBar {
+    pub fn draw(&self, size: Vector2<f32>, scene: &mut Scene) {
+        let mut mesh = Mesh::new();
+
         let width = 2.0;
         let color = self.style.violet();
 
         let pos = self.position * size.x;
 
-        renderer.render_rect(
+        mesh.add_rect(
             Vector2::new(pos - 0.5 * width, 0.0),
             Vector2::new(pos + 0.5 * width, size.y),
             color
         );
+
+        scene.add_mesh(mesh)
     }
 }
 
@@ -198,9 +207,11 @@ pub struct NoteView {
     pub selected: bool,
 }
 
-impl Draw for NoteView {
-    fn draw<R: Render>(&self, size: Vector2<f32>, renderer: &mut R) {
+impl NoteView {
+    pub fn draw(&self, size: Vector2<f32>, scene: &mut Scene) {
         use cgmath::ElementWise;
+
+        let mut mesh = Mesh::new();
 
         let aspect = size.div_element_wise(self.view.1 - self.view.0);
         let brick_width = 1.4 * aspect.y;
@@ -225,9 +236,11 @@ impl Draw for NoteView {
 
             let delta: Vector2<f32> = [border_width / 2.0; 2].into();
 
-            renderer.render_rect(v0, v1, border_color);
-            renderer.render_rect(v0 + delta, v1 - delta, color);
+            mesh.add_rect(v0, v1, border_color);
+            mesh.add_rect(v0 + delta, v1 - delta, color);
         }
+
+        scene.add_mesh(mesh)
     }
 }
 
@@ -237,30 +250,34 @@ pub struct Frame {
     pub style: Style,
 }
 
-impl Draw for Frame {
-    fn draw<R: Render>(&self, size: Vector2<f32>, renderer: &mut R) {
+impl Frame {
+    pub fn draw(&self, size: Vector2<f32>, scene: &mut Scene) {
+        let mut mesh = Mesh::new();
+
         let border_width = 2.0;
         let color = self.style.base0();
 
-        renderer.render_rect(
+        mesh.add_rect(
             [self.from.x - border_width / 2.0, self.from.y - border_width / 2.0].into(),
             [self.to.x + border_width / 2.0, self.from.y + border_width / 2.0].into(),
             color
         );
-        renderer.render_rect(
+        mesh.add_rect(
             [self.from.x - border_width / 2.0, self.from.y - border_width / 2.0].into(),
             [self.from.x + border_width / 2.0, self.to.y + border_width / 2.0].into(),
             color
         );
-        renderer.render_rect(
+        mesh.add_rect(
             [self.from.x - border_width / 2.0, self.to.y - border_width / 2.0].into(),
             [self.to.x + border_width / 2.0, self.to.y + border_width / 2.0].into(),
             color
         );
-        renderer.render_rect(
+        mesh.add_rect(
             [self.to.x - border_width / 2.0, self.from.y - border_width / 2.0].into(),
             [self.to.x + border_width / 2.0, self.to.y + border_width / 2.0].into(),
             color
         );
+
+        scene.add_mesh(mesh)
     }
 }
