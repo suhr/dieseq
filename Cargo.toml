@@ -4,19 +4,21 @@ version = "0.1.0"
 authors = ["Сухарик <suhr@i2pmail.org>"]
 
 [dependencies]
-gfx = "0.17"
+gfx = "*"
 gfx_device_gl = "*"
 gfx_window_glutin = "*"
 glutin = "*"
 
 cgmath = { version = "*", features = ["serde"] }
 palette = "*"
-portmidi = "*"
 clap = "2"
 
 serde = "*"
 serde_derive = "*"
 ron = "*"
+
+[profile.dev]
+opt-level = 1
 
 [profile.release]
 lto = true
