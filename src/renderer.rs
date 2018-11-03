@@ -61,16 +61,22 @@ pub enum Object {
 
 pub struct Scene {
     objs: Vec<Mesh>,
+    bg_color: [f32; 4],
 }
 
 impl Scene {
     pub fn new() -> Self {
         Scene {
             objs: vec![],
+            bg_color: [0.0; 4],
         }
     }
     pub fn add_mesh(&mut self, mesh: Mesh) {
         self.objs.push(mesh)
+    }
+
+    pub fn set_bg_color(&mut self, color: [f32; 4]) {
+        self.bg_color = color
     }
 
     pub fn clear(&mut self) {

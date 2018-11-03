@@ -2,7 +2,7 @@ use ::palette::Pixel;
 use ::palette::rgb::Srgba;
 use ::cgmath::{ElementWise, Vector2};
 
-use ::renderer::{Render, Mesh, Scene};
+use ::renderer::{Mesh, Scene};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 // Hard-coded Solarized theme
@@ -200,7 +200,7 @@ impl PlayBar {
 }
 
 pub struct NoteView {
-    pub notes: Vec<super::Note>,
+    pub notes: Vec<::pianoroll::Note>,
     pub view: (Vector2<f32>, Vector2<f32>),
     pub measure_ticks: u16,
     pub style: Style,
