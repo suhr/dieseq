@@ -2,6 +2,7 @@
 name = "dieseq"
 version = "0.1.0"
 authors = ["Сухарик <suhr@i2pmail.org>"]
+edition = "2018"
 
 [dependencies]
 gfx = "*"

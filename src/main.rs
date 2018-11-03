@@ -3,25 +3,14 @@
 #[macro_use] extern crate gfx;
 #[macro_use] extern crate serde_derive;
 
-extern crate gfx_device_gl;
-extern crate gfx_window_glutin;
-extern crate glutin;
-
-extern crate cgmath;
-extern crate palette;
-extern crate clap;
-
-extern crate serde;
-extern crate ron;
-
 use glutin::ModifiersState;
 use std::time::Instant;
 use gfx::Device;
 use gfx_window_glutin::init as gfx_init;
 use cgmath::{Vector2, ElementWise};
 
-use renderer::{ColorFormat, DepthFormat};
-use pianoroll::PianoRoll;
+use crate::renderer::{ColorFormat, DepthFormat};
+use crate::pianoroll::PianoRoll;
 
 mod renderer;
 mod ui;
@@ -243,9 +232,6 @@ impl Model {
 }
 
 fn model(mut model: Model, msg: Msg) -> Model {
-    use glutin::WindowEvent::*;
-    use Msg::*;
-
     model.pianoroll.model(msg);
 
     model
