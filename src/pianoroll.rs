@@ -1,6 +1,6 @@
 use crate::ui;
 use crate::{Vector2, rects_overlap, normalize_square, duration_seconds};
-use crate::Msg;
+use crate::{Msg, Command};
 use crate::renderer;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -132,11 +132,12 @@ impl PianoRoll {
         self.grid.view.1.x = (end - split_point) * k + split_point;
     }
 
-    fn on_left_press(&mut self, position: Vector2<f32>) {
+    fn st_select_point(&mut self, position: Vector2<f32>) {
         if self.tool == Tool::Arrow  {
             self.state = State::PointSelected(position);
         }
-
+    }
+    fn st_draw_brick(&mut self, position: Vector2<f32>) {
         if self.tool == Tool::Pencil {
             let view_pos = self.grid.view_position(position);
 
@@ -149,14 +150,15 @@ impl PianoRoll {
             });
         }
     }
-
-    fn on_left_release(&mut self) {
+    fn st_set_time(&mut self) {
         if let State::PointSelected(point) = self.state {
             let time = self.grid.view_position(point).x;
 
             self.play_pos = time;
             self.state = State::Idle;
         }
+    }
+    fn st_select_framed(&mut self) {
         if let State::SelectFrame(v0, v1) = self.state {
             let (v0, v1) = normalize_square(
                 self.grid.view_position(v0),
@@ -178,6 +180,8 @@ impl PianoRoll {
                 self.state = State::NotesSelected(framed)
             }
         };
+    }
+    fn st_create_brick(&mut self) {
         if let State::Drawing(brick) = self.state {
             if brick.time.0.round() != brick.time.1.round() {
                 self.score.notes.push(brick.into())
@@ -197,8 +201,21 @@ impl PianoRoll {
             self.state = State::Idle
         }
     }
+    //st_change_brick
 
-    fn on_time(&mut self, time: std::time::Duration) {
+    fn on_left_press(&mut self, position: Vector2<f32>) {
+        self.st_select_point(position);
+        self.st_draw_brick(position)
+    }
+
+    fn on_left_release(&mut self) {
+        self.st_set_time();
+        self.st_select_framed();
+        self.st_create_brick();
+        
+    }
+
+    fn on_time(&mut self, time: std::time::Duration, cmds: &mut Vec<crate::Command>) {
         if let State::Playing(_pos, mut ipos) = self.state {
             let pos = self.play_pos + duration_seconds(time);
             let ticks = pos * self.score.measure_ticks as f32;
@@ -208,11 +225,11 @@ impl PianoRoll {
 
                 for &n in &self.score.notes {
                     if n.time.0 == ipos {
-                        // self.commands.push(Command::NoteOn(n))
+                        cmds.push(Command::NoteOn(n))
                     }
 
                     if n.time.1 == ipos {
-                        // self.commands.push(Command::NoteOff(n))
+                        cmds.push(Command::NoteOff(n))
                     }
                 }
             }
@@ -221,7 +238,7 @@ impl PianoRoll {
         }
     }
 
-    fn on_key_press(&mut self, key: u32) {
+    fn on_key_press(&mut self, key: u32, cmds: &mut Vec<Command>) {
         match (key, &self.state) {
             (0x02, _) => {
                 self.tool = Tool::Arrow;
@@ -230,15 +247,19 @@ impl PianoRoll {
                 self.tool = Tool::Pencil;
             },
             (0x39, &State::Playing(_, _)) => {
-                // self.commands.push(Command::Stop);
+                cmds.push(Command::Stop);
+                cmds.push(Command::UnsubTime);
 
                 self.state = State::Idle
             },
-            (0x39, _) =>
+            (0x39, _) => {
                 self.state = State::Playing(
                     self.play_pos,
                     (self.play_pos * self.score.measure_ticks as f32).round() as i16 - 1
-                ),
+                );
+
+                cmds.push(Command::SubTime)
+            },
             (0x20, &State::NotesSelected(ref selected)) => {
                 self.score.notes.retain(|n| !selected.contains(n));
 
@@ -252,7 +273,7 @@ impl PianoRoll {
         }
     }
 
-    pub fn model(&mut self, msg: Msg) {
+    pub fn model(&mut self, msg: Msg, cmds: &mut Vec<Command>) {
         use glutin::WindowEvent::*;
         use self::Msg::*;
 
@@ -309,11 +330,11 @@ impl PianoRoll {
                 self.grid.view.1.x = v1.x;
             },
             Msg::Time(t) => {
-                self.on_time(t)
+                self.on_time(t, cmds)
             }
             WindowEvent(KeyboardInput { input, .. })
             if input.state == glutin::ElementState::Pressed => {
-                self.on_key_press(input.scancode)
+                self.on_key_press(input.scancode, cmds)
             },
             WindowEvent(Resized(sz)) =>
                 self.grid.size = Vector2::new(sz.width as f32, sz.height as f32),
@@ -321,7 +342,7 @@ impl PianoRoll {
         }
     }
 
-    pub fn draw(&self, screen_size: [f32; 2], renderer: &mut renderer::Renderer, scene: &mut renderer::Scene) {
+    pub fn draw(&self, screen_size: [f32; 2], scene: &mut renderer::Scene) {
         self.grid.draw(screen_size.into(), scene);
 
         let mut notes = self.score.notes.clone();

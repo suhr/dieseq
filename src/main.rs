@@ -3,6 +3,7 @@
 #[macro_use] extern crate gfx;
 #[macro_use] extern crate serde_derive;
 
+use crate::pianoroll::Note;
 use glutin::ModifiersState;
 use std::time::Instant;
 use gfx::Device;
@@ -168,11 +169,13 @@ impl Intent {
 
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-enum Command {
-    // NoteOn(Note),
-    // NoteOff(Note),
+pub enum Command {
+    NoteOn(Note),
+    NoteOff(Note),
     Stop,
     Save,
+    SubTime,
+    UnsubTime,
 }
 
 // #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -182,13 +185,9 @@ enum Command {
 //     play_pos: f32,
 // }
 
-
-
 struct Model {
-    med: ::std::process::Child,
     file: Option<::std::path::PathBuf>,
     pianoroll: PianoRoll,
-    commands: Vec<Command>,
 }
 
 impl Model {
@@ -197,25 +196,9 @@ impl Model {
     }
 
     fn with_file(path: Option<::std::path::PathBuf>) -> Self {
-        use std::process::{Command, Stdio};
-        use std::io::Write;
-
-
-        let mut med = Command::new("med")
-            .args(&["--pipe"])
-            .stdin(Stdio::piped())
-            .spawn().unwrap();
-
-        {
-            let stdin = med.stdin.as_mut().unwrap();
-            stdin.write_all(format!("31edo\n").as_bytes()).unwrap();
-        }
-
         Model {
-            med,
             file: path,
             pianoroll: PianoRoll::new(),
-            commands: vec![],
         }
     }
 
@@ -231,8 +214,8 @@ impl Model {
     }
 }
 
-fn model(mut model: Model, msg: Msg) -> Model {
-    model.pianoroll.model(msg);
+fn model(mut model: Model, msg: Msg, cmds: &mut Vec<Command>) -> Model {
+    model.pianoroll.model(msg, cmds);
 
     model
 }
@@ -241,7 +224,7 @@ fn draw(model: &Model, screen_size: [f32; 2], renderer: &mut renderer::Renderer,
     renderer.clear(ui::Style::Dark.base3());
     scene.clear();
 
-    model.pianoroll.draw(screen_size, renderer, scene)
+    model.pianoroll.draw(screen_size, scene)
 }
 
 struct MainState {
@@ -253,12 +236,25 @@ impl MainState {
 }
 
 struct Backend {
+    med: ::std::process::Child,
     moment: Option<Instant>,
 }
 
 impl Backend {
     fn new() -> Self {
+        use std::process::{Command, Stdio};
+        use std::io::Write;
+
+        let mut med = Command::new("med")
+            .args(&["--pipe"])
+            .stdin(Stdio::piped())
+            .spawn().unwrap();
+
+        let stdin = med.stdin.as_mut().unwrap();
+        stdin.write_all(format!("31edo\n").as_bytes()).unwrap();
+
         Backend {
+            med,
             moment: None,
         }
     }
@@ -273,47 +269,38 @@ impl Backend {
         }
     }
 
-    fn run(&mut self, model: &mut Model) {
-        // match model.state {
-        //     State::Playing(_, _) =>
-        //         if self.moment.is_none() {
-        //             self.moment = Some(Instant::now())
-        //         },
-        //     _ =>
-        //         self.moment = None,
-        // };
-
-        for c in model.commands.drain(..) {
+    fn run(&mut self, commands: &mut Vec<Command>) {
+        for c in commands.drain(..) {
             use std::io::Write;
-            let stdin = model.med.stdin.as_mut().unwrap();
+            let stdin = self.med.stdin.as_mut().unwrap();
 
             match c {
-                // Command::NoteOn(n) => {
-                //     match n.pitch / 31 {
-                //         0 => drop(stdin.write_all(format!("0a{}_+\n", n.pitch % 31).as_bytes())),
-                //         1 => drop(stdin.write_all(format!("0b{}_+\n", n.pitch % 31).as_bytes())),
-                //         2 => drop(stdin.write_all(format!("0c{}_+\n", n.pitch % 31).as_bytes())),
-                //         3 => drop(stdin.write_all(format!("0d{}_+\n", n.pitch % 31).as_bytes())),
-                //         4 => drop(stdin.write_all(format!("0e{}_+\n", n.pitch % 31).as_bytes())),
-                //         5 => drop(stdin.write_all(format!("0f{}_+\n", n.pitch % 31).as_bytes())),
-                //         6 => drop(stdin.write_all(format!("0g{}_+\n", n.pitch % 31).as_bytes())),
-                //         7 => drop(stdin.write_all(format!("0h{}_+\n", n.pitch % 31).as_bytes())),
-                //         _ => (),
-                //     }
-                // },
-                // Command::NoteOff(n) => {
-                //     match n.pitch / 31 {
-                //         0 => drop(stdin.write_all(format!("0a{}-\n", n.pitch % 31).as_bytes())),
-                //         1 => drop(stdin.write_all(format!("0b{}-\n", n.pitch % 31).as_bytes())),
-                //         2 => drop(stdin.write_all(format!("0c{}-\n", n.pitch % 31).as_bytes())),
-                //         3 => drop(stdin.write_all(format!("0d{}-\n", n.pitch % 31).as_bytes())),
-                //         4 => drop(stdin.write_all(format!("0e{}-\n", n.pitch % 31).as_bytes())),
-                //         5 => drop(stdin.write_all(format!("0f{}-\n", n.pitch % 31).as_bytes())),
-                //         6 => drop(stdin.write_all(format!("0g{}-\n", n.pitch % 31).as_bytes())),
-                //         7 => drop(stdin.write_all(format!("0h{}-\n", n.pitch % 31).as_bytes())),
-                //         _ => (),
-                //     }
-                // },
+                Command::NoteOn(n) => {
+                    match n.pitch / 31 {
+                        0 => drop(stdin.write_all(format!("0a{}_+\n", n.pitch % 31).as_bytes())),
+                        1 => drop(stdin.write_all(format!("0b{}_+\n", n.pitch % 31).as_bytes())),
+                        2 => drop(stdin.write_all(format!("0c{}_+\n", n.pitch % 31).as_bytes())),
+                        3 => drop(stdin.write_all(format!("0d{}_+\n", n.pitch % 31).as_bytes())),
+                        4 => drop(stdin.write_all(format!("0e{}_+\n", n.pitch % 31).as_bytes())),
+                        5 => drop(stdin.write_all(format!("0f{}_+\n", n.pitch % 31).as_bytes())),
+                        6 => drop(stdin.write_all(format!("0g{}_+\n", n.pitch % 31).as_bytes())),
+                        7 => drop(stdin.write_all(format!("0h{}_+\n", n.pitch % 31).as_bytes())),
+                        _ => (),
+                    }
+                },
+                Command::NoteOff(n) => {
+                    match n.pitch / 31 {
+                        0 => drop(stdin.write_all(format!("0a{}-\n", n.pitch % 31).as_bytes())),
+                        1 => drop(stdin.write_all(format!("0b{}-\n", n.pitch % 31).as_bytes())),
+                        2 => drop(stdin.write_all(format!("0c{}-\n", n.pitch % 31).as_bytes())),
+                        3 => drop(stdin.write_all(format!("0d{}-\n", n.pitch % 31).as_bytes())),
+                        4 => drop(stdin.write_all(format!("0e{}-\n", n.pitch % 31).as_bytes())),
+                        5 => drop(stdin.write_all(format!("0f{}-\n", n.pitch % 31).as_bytes())),
+                        6 => drop(stdin.write_all(format!("0g{}-\n", n.pitch % 31).as_bytes())),
+                        7 => drop(stdin.write_all(format!("0h{}-\n", n.pitch % 31).as_bytes())),
+                        _ => (),
+                    }
+                },
                 Command::Stop => {
                     drop(stdin.write_all(format!("s\n").as_bytes()))
                 },
@@ -330,6 +317,12 @@ impl Backend {
                     //     let mut file = ::std::fs::File::create(path).unwrap();
                     //     drop(file.write_all(output.as_bytes()));
                     // }
+                },
+                Command::SubTime => {
+                    self.moment = Some(Instant::now())
+                },
+                Command::UnsubTime => {
+                    self.moment = None
                 },
             }
         }
@@ -389,6 +382,8 @@ pub fn main() {
 
     let mut running = true;
     let mut screen_size = [1024.0, 768.0];
+    let mut cmds: Vec<Command> = vec![];
+
     while running {
         events_loop.poll_events(|ev| {
             use glutin::WindowEvent::*;
@@ -408,11 +403,11 @@ pub fn main() {
         });
 
         for s in backend.subscriptions() {
-            the_model = model(the_model, s);
+            the_model = model(the_model, s, &mut cmds);
         }
 
         for m in intent.messages() {
-            the_model = model(the_model, m);
+            the_model = model(the_model, m, &mut cmds);
         }
 
         draw(&the_model, screen_size, &mut renderer, &mut scene);
@@ -421,9 +416,9 @@ pub fn main() {
         window.swap_buffers().unwrap();
         device.cleanup();
 
-        backend.run(&mut the_model);
-        ::std::thread::yield_now()
-        // let dt = ::std::time::Duration::from_millis(8);
-        // ::std::thread::sleep(dt)
+        backend.run(&mut cmds);
+        // ::std::thread::yield_now()
+        let dt = ::std::time::Duration::from_millis(8);
+        ::std::thread::sleep(dt)
     }
 }
